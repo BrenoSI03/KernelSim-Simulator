@@ -20,9 +20,8 @@ void escalona_proximo() {
 }
 
 int main() {
-    mkfifo(FIFO_PATH, 0666); // Cria FIFO para comunicação com InterController
+    mkfifo(FIFO_PATH, 0666); 
 
-    // Criação dos processos de aplicação
     for (int i = 0; i < NPROC; i++) {
         pid_t pid = fork();
         if (pid == 0) {
@@ -35,7 +34,6 @@ int main() {
         }
     }
 
-    // Inicia primeiro processo
     sleep(1);
     kill(apps[current], SIGCONT);
 
