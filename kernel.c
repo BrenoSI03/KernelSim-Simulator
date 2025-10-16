@@ -57,7 +57,7 @@ void escalona_proximo() {
 void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
     for (int i = 0; i < NPROC; i++) {
         if (proc[i].pid == pid) {
-            proc[i].estado = 1; // BLOQUEADO
+            proc[i].estado = 1; 
             proc[i].dispositivo = dispositivo;
             proc[i].operacao = operacao;
 
@@ -76,17 +76,27 @@ void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
 
 void desbloqueia_processo(int dispositivo) {
     pid_t pid;
+
     if (dispositivo == 1 && inicio_D1 < fim_D1) {
         pid = fila_D1[inicio_D1++ % NPROC];
     } else if (dispositivo == 2 && inicio_D2 < fim_D2) {
         pid = fila_D2[inicio_D2++ % NPROC];
     } else return;
+
     for (int i = 0; i < NPROC; i++) {
         if (proc[i].pid == pid) {
             proc[i].estado = 0;
             proc[i].dispositivo = 0;
             proc[i].operacao = '-';
-            printf("[KernelSim] Desbloqueando processo %d\n", pid);
+
+            if (dispositivo == 1)
+                proc[i].acessos_D1++;
+            else if (dispositivo == 2)
+                proc[i].acessos_D2++;
+
+            printf("[KernelSim] Desbloqueando processo %d (D%d concluído)\n", pid, dispositivo);
+
+            kill(pid, SIGCONT);
             break;
         }
     }
