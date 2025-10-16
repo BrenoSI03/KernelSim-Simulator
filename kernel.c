@@ -11,29 +11,25 @@
 #define NPROC 5
 #define FIFO_PATH "/tmp/kernel_fifo"
 
-// -------------------------
-// Estrutura de controle de processo
-// -------------------------
 typedef struct {
     pid_t pid;
-    int estado;            // 0=pronto, 1=bloqueado, 2=executando, 3=terminado
-    int dispositivo;       // 1 ou 2 (se bloqueado)
-    char operacao;         // 'R', 'W', 'X'
+    int estado;
+    int dispositivo;
+    char operacao;
     int acessos_D1;
     int acessos_D2;
-    int pc;                // contador de programa (valor aproximado)
+    int pc;
 } ProcInfo;
 
 typedef struct {
     pid_t pid;
-    int tipo;         // 11 ou 12 (syscall), ou 0/1/2 (IRQ)
+    int tipo;
     int pc;
     int acessos_D1;
     int acessos_D2;
     int dispositivo;
     char operacao;
 } MsgSyscall;
-
 
 ProcInfo proc[NPROC];
 pid_t fila_D1[NPROC], fila_D2[NPROC];
@@ -44,48 +40,39 @@ pid_t apps[NPROC];
 int current = 0;
 int fd_fifo;
 
-// -------------------------
-// Escalonador Round-Robin
-// -------------------------
 void escalona_proximo() {
-    // Marca o atual como "pronto" (só se não estiver bloqueado/terminado)
     if (proc[current].estado == 2)
         proc[current].estado = 0;
-
-    // Pausa o atual
     kill(apps[current], SIGSTOP);
-
-    // Procura o próximo processo pronto
     int tentativas = 0;
     do {
         current = (current + 1) % NPROC;
         tentativas++;
-        if (tentativas > NPROC) return; // todos bloqueados ou terminados
+        if (tentativas > NPROC) return;
     } while (proc[current].estado != 0);
-
-    // Retoma o processo selecionado
     kill(apps[current], SIGCONT);
-    proc[current].estado = 2; // executando
+    proc[current].estado = 2;
 }
 
-// -------------------------
-// Gerenciamento de bloqueio/desbloqueio
-// -------------------------
-void bloqueia_processo(pid_t pid, int dispositivo, char op) {
+void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
     for (int i = 0; i < NPROC; i++) {
         if (proc[i].pid == pid) {
-            proc[i].estado = 1;
+            proc[i].estado = 1; // BLOQUEADO
             proc[i].dispositivo = dispositivo;
-            proc[i].operacao = op;
+            proc[i].operacao = operacao;
+
             if (dispositivo == 1)
-                fila_D1[fim_D1++ % NPROC] = pid;
-            else
-                fila_D2[fim_D2++ % NPROC] = pid;
+                proc[i].acessos_D1++;
+            else if (dispositivo == 2)
+                proc[i].acessos_D2++;
+
             kill(pid, SIGSTOP);
+            printf("[KernelSim] Processo %d bloqueado em D%d.\n", pid, dispositivo);
             break;
         }
     }
 }
+
 
 void desbloqueia_processo(int dispositivo) {
     pid_t pid;
@@ -94,8 +81,6 @@ void desbloqueia_processo(int dispositivo) {
     } else if (dispositivo == 2 && inicio_D2 < fim_D2) {
         pid = fila_D2[inicio_D2++ % NPROC];
     } else return;
-
-    // Marca como pronto
     for (int i = 0; i < NPROC; i++) {
         if (proc[i].pid == pid) {
             proc[i].estado = 0;
@@ -107,9 +92,6 @@ void desbloqueia_processo(int dispositivo) {
     }
 }
 
-// -------------------------
-// Captura do estado (SIGINT)
-// -------------------------
 void mostra_status(int sig) {
     printf("\n==================== ESTADO DOS PROCESSOS ====================\n");
     for (int i = 0; i < NPROC; i++) {
@@ -120,44 +102,31 @@ void mostra_status(int sig) {
             case 2: printf("EXECUTANDO"); break;
             case 3: printf("TERMINADO"); break;
         }
-
         printf(" | PC=%d | D1=%d | D2=%d",
                proc[i].pc, proc[i].acessos_D1, proc[i].acessos_D2);
-
         if (proc[i].estado == 1)
             printf(" | Esperando D%d (%c)", proc[i].dispositivo, proc[i].operacao);
-
         printf("\n");
     }
     printf("==============================================================\n");
-
-    // Fecha FIFO e remove arquivo temporário
     close(fd_fifo);
     unlink(FIFO_PATH);
-
     printf("\n[KernelSim] Encerrando simulador por Ctrl+C...\n");
-
-    // Envia SIGTERM para todos os processos de aplicação ainda vivos
     for (int i = 0; i < NPROC; i++) {
-        if (proc[i].estado != 3) { // se não terminou
+        if (proc[i].estado != 3) {
             kill(proc[i].pid, SIGTERM);
         }
     }
-
-    exit(0); // encerra o KernelSim
+    exit(0);
 }
 
-
-// -------------------------
-// Verifica se algum app terminou
-// -------------------------
 void verifica_terminos() {
     int status;
     pid_t pid;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         for (int i = 0; i < NPROC; i++) {
             if (proc[i].pid == pid) {
-                proc[i].estado = 3; // terminado
+                proc[i].estado = 3;
                 printf("[KernelSim] Processo %d terminou.\n", pid);
                 break;
             }
@@ -165,14 +134,9 @@ void verifica_terminos() {
     }
 }
 
-// -------------------------
-// Programa principal
-// -------------------------
 int main() {
     mkfifo(FIFO_PATH, 0666);
     signal(SIGINT, mostra_status);
-
-    // Cria processos de aplicação
     for (int i = 0; i < NPROC; i++) {
         pid_t pid = fork();
         if (pid == 0) {
@@ -183,35 +147,25 @@ int main() {
         } else {
             apps[i] = pid;
             proc[i].pid = pid;
-            proc[i].estado = 0;  // pronto inicialmente
+            proc[i].estado = 0;
             proc[i].pc = 0;
             proc[i].acessos_D1 = 0;
             proc[i].acessos_D2 = 0;
             proc[i].dispositivo = 0;
             proc[i].operacao = '-';
-            kill(apps[i], SIGSTOP); // pausa todos
+            kill(apps[i], SIGSTOP);
         }
     }
-
-    // Inicia o primeiro processo
     sleep(1);
     kill(apps[current], SIGCONT);
     proc[current].estado = 2;
-
-    // Abre FIFO para leitura
     fd_fifo = open(FIFO_PATH, O_RDONLY);
     int irq;
-
     MsgSyscall msg;
-
     while (1) {
         verifica_terminos();
-
-        // lê estrutura completa
         ssize_t bytes = read(fd_fifo, &msg, sizeof(MsgSyscall));
-
         if (bytes == sizeof(MsgSyscall)) {
-            // atualização de estado vinda de app
             for (int i = 0; i < NPROC; i++) {
                 if (proc[i].pid == msg.pid) {
                     proc[i].pc = msg.pc;
@@ -220,19 +174,17 @@ int main() {
                     break;
                 }
             }
-
-            if (msg.tipo == 11) { // D1 syscall
+            if (msg.tipo == 11) {
                 printf("[KernelSim] Processo %d bloqueado em D1.\n", msg.pid);
                 bloqueia_processo(msg.pid, 1, msg.operacao);
                 escalona_proximo();
-            } else if (msg.tipo == 12) { // D2 syscall
+            } else if (msg.tipo == 12) {
                 printf("[KernelSim] Processo %d bloqueado em D2.\n", msg.pid);
                 bloqueia_processo(msg.pid, 2, msg.operacao);
                 escalona_proximo();
             }
         }
         else if (bytes == sizeof(int)) {
-            // mensagens do InterController (IRQ0/1/2)
             int irq = *((int *)&msg);
             switch (irq) {
                 case 0:
@@ -250,8 +202,6 @@ int main() {
             }
         }
     }
-
-
     close(fd_fifo);
     unlink(FIFO_PATH);
     return 0;
