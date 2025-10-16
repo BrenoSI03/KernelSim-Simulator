@@ -9,34 +9,42 @@
 #define FIFO_PATH "/tmp/kernel_fifo"
 #define MAX 10
 
+typedef struct {
+    pid_t pid;
+    int tipo;         // 11 ou 12
+    int pc;
+    int acessos_D1;
+    int acessos_D2;
+    int dispositivo;
+    char operacao;
+} MsgSyscall;
+
 int pc = 0;
-int acessos_D1 = 0;
-int acessos_D2 = 0;
-int dispositivo_atual = 0;
-char operacao_atual = '-';
+int acessos_D1 = 0, acessos_D2 = 0;
 
 void sys_call(int dispositivo) {
     int fd = open(FIFO_PATH, O_WRONLY | O_NONBLOCK);
-    if (fd < 0) {
-        perror("[App] Erro ao abrir FIFO");
-        return;
-    }
+    if (fd < 0) return;
 
-    int msg = 10 + dispositivo;
-    write(fd, &msg, sizeof(int));
-    close(fd);
+    MsgSyscall msg;
+    msg.pid = getpid();
+    msg.tipo = 10 + dispositivo; // 11 ou 12
+    msg.pc = pc;
+    msg.acessos_D1 = acessos_D1;
+    msg.acessos_D2 = acessos_D2;
+    msg.dispositivo = dispositivo;
 
-    dispositivo_atual = dispositivo;
     int op = rand() % 3;
-    if (op == 0) operacao_atual = 'R';
-    else if (op == 1) operacao_atual = 'W';
-    else operacao_atual = 'X';
+    msg.operacao = (op == 0) ? 'R' : (op == 1) ? 'W' : 'X';
 
     if (dispositivo == 1) acessos_D1++;
     else acessos_D2++;
 
+    write(fd, &msg, sizeof(msg));
+    close(fd);
+
     printf("[App %d] -> Bloqueando por D%d (Operação %c, PC=%d)\n",
-           getpid(), dispositivo, operacao_atual, pc);
+           msg.pid, msg.dispositivo, msg.operacao, msg.pc);
 
     kill(getpid(), SIGSTOP);
 }
@@ -47,12 +55,10 @@ int main() {
 
     while (pc < MAX) {
         sleep(1);
-
         if (rand() % 100 < 15) {
             int dispositivo = (rand() % 2) + 1;
             sys_call(dispositivo);
         }
-
         pc++;
     }
 
