@@ -39,6 +39,9 @@ int inicio_D2 = 0, fim_D2 = 0;
 pid_t apps[NPROC];
 int current = 0;
 int fd_fifo;
+volatile sig_atomic_t paused = 0;
+pid_t intercontroller_pid = -1;
+
 
 void escalona_proximo() {
     if (proc[current].estado == 2)
@@ -103,32 +106,27 @@ void desbloqueia_processo(int dispositivo) {
 }
 
 void mostra_status(int sig) {
-    printf("\n==================== ESTADO DOS PROCESSOS ====================\n");
-    for (int i = 0; i < NPROC; i++) {
-        printf("PID %d | ", proc[i].pid);
-        switch (proc[i].estado) {
-            case 0: printf("PRONTO"); break;
-            case 1: printf("BLOQUEADO"); break;
-            case 2: printf("EXECUTANDO"); break;
-            case 3: printf("TERMINADO"); break;
+    if (!paused) {
+        paused = 1;
+        printf("\n=== PAUSANDO SIMULAÇÃO ===\n");
+        for (int i = 0; i < NPROC; i++)
+            if (proc[i].estado != 3) kill(proc[i].pid, SIGSTOP);
+        if (intercontroller_pid > 0) kill(intercontroller_pid, SIGSTOP);
+
+        for (int i = 0; i < NPROC; i++) {
+            printf("PID %d | Estado %d | PC=%d | D1=%d | D2=%d\n",
+                proc[i].pid, proc[i].estado, proc[i].pc, proc[i].acessos_D1, proc[i].acessos_D2);
         }
-        printf(" | PC=%d | D1=%d | D2=%d",
-               proc[i].pc, proc[i].acessos_D1, proc[i].acessos_D2);
-        if (proc[i].estado == 1)
-            printf(" | Esperando D%d (%c)", proc[i].dispositivo, proc[i].operacao);
-        printf("\n");
+        printf("Pressione Ctrl+C novamente para retomar.\n");
+    } else {
+        paused = 0;
+        printf("\n=== RETOMANDO SIMULAÇÃO ===\n");
+        for (int i = 0; i < NPROC; i++)
+            if (proc[i].estado != 3) kill(proc[i].pid, SIGCONT);
+        if (intercontroller_pid > 0) kill(intercontroller_pid, SIGCONT);
     }
-    printf("==============================================================\n");
-    close(fd_fifo);
-    unlink(FIFO_PATH);
-    printf("\n[KernelSim] Encerrando simulador por Ctrl+C...\n");
-    for (int i = 0; i < NPROC; i++) {
-        if (proc[i].estado != 3) {
-            kill(proc[i].pid, SIGTERM);
-        }
-    }
-    exit(0);
 }
+
 
 void verifica_terminos() {
     int status;
@@ -172,7 +170,19 @@ int main() {
     fd_fifo = open(FIFO_PATH, O_RDONLY);
     int irq;
     MsgSyscall msg;
+    intercontroller_pid = fork();
+    if (intercontroller_pid == 0) {
+        execl("./inter_controller", "./inter_controller", NULL);
+        perror("Erro ao iniciar InterControllerSim");
+        exit(1);
+    }
+
     while (1) {
+        if (paused) {
+            usleep(200000); // espera 200ms enquanto pausado
+            continue;
+        }
+
         verifica_terminos();
         ssize_t bytes = read(fd_fifo, &msg, sizeof(MsgSyscall));
         if (bytes == sizeof(MsgSyscall)) {
@@ -196,19 +206,22 @@ int main() {
         }
         else if (bytes == sizeof(int)) {
             int irq = *((int *)&msg);
-            switch (irq) {
-                case 0:
-                    printf("[KernelSim] IRQ0 recebido: Troca de processo.\n");
-                    escalona_proximo();
-                    break;
-                case 1:
-                    printf("[KernelSim] IRQ1 recebido: operação em D1 terminou.\n");
-                    desbloqueia_processo(1);
-                    break;
-                case 2:
+
+            if (!paused) {
+                switch (irq) {
+                    case 0:
+                        printf("[KernelSim] IRQ0 recebido: Troca de processo.\n");
+                        escalona_proximo();
+                        break;
+                    case 1:
+                        printf("[KernelSim] IRQ1 recebido: operação em D1 terminou.\n");
+                        desbloqueia_processo(1);
+                        break;
+                    case 2:
                     printf("[KernelSim] IRQ2 recebido: operação em D2 terminou.\n");
                     desbloqueia_processo(2);
                     break;
+                }
             }
         }
     }
