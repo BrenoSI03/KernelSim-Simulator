@@ -55,10 +55,14 @@ void bloqueia_processo(pid_t pid, int dispositivo, char operacao)
             proc[i].dispositivo = dispositivo;
             proc[i].operacao = operacao;
 
-            if (dispositivo == 1)
+            if (dispositivo == 1) {
                 proc[i].acessos_D1++;
-            else if (dispositivo == 2)
+                fila_D1[fim_D1++ % NPROC] = pid;
+            } 
+            else if (dispositivo == 2) {
                 proc[i].acessos_D2++;
+                fila_D2[fim_D2++ % NPROC] = pid;
+            }
 
             kill(pid, SIGSTOP);
             printf("[KernelSim] Processo %d bloqueado em D%d.\n", pid, dispositivo);
@@ -85,11 +89,6 @@ void desbloqueia_processo(int dispositivo)
             proc[i].estado = READY;
             proc[i].dispositivo = 0;
             proc[i].operacao = '-';
-
-            if (dispositivo == 1)
-                proc[i].acessos_D1++;
-            else if (dispositivo == 2)
-                proc[i].acessos_D2++;
 
             printf("[KernelSim] Desbloqueando processo %d (D%d concluído)\n", pid, dispositivo);
 
@@ -220,20 +219,16 @@ int main()
                 if (proc[i].pid == msg.pid) 
                 {
                     proc[i].pc = msg.pc;
-                    proc[i].acessos_D1 = msg.acessos_D1;
-                    proc[i].acessos_D2 = msg.acessos_D2;
                     break;
                 }
             }
             if (msg.tipo == 11) 
             {
-                printf("[KernelSim] Processo %d bloqueado em D1.\n", msg.pid);
                 bloqueia_processo(msg.pid, 1, msg.operacao);
                 escalona_proximo();
             } 
             else if (msg.tipo == 12) 
             {
-                printf("[KernelSim] Processo %d bloqueado em D2.\n", msg.pid);
                 bloqueia_processo(msg.pid, 2, msg.operacao);
                 escalona_proximo();
             }

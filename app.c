@@ -34,10 +34,8 @@ void sys_call(int dispositivo) {
     write(fd, &msg, sizeof(msg));
     close(fd);
 
-    printf("[App %d] -> Bloqueando por D%d (Operação %c, PC=%d)\n",
+    printf("[App %d] -> solicitou por D%d (Operação %c, PC=%d)\n",
            msg.pid, msg.dispositivo, msg.operacao, msg.pc);
-
-    kill(getpid(), SIGSTOP);
 }
 
 int main() {
