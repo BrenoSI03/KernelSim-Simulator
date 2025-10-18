@@ -21,6 +21,28 @@ typedef struct {
 
 int pc = 0;
 int acessos_D1 = 0, acessos_D2 = 0;
+int continuar = 1;
+
+void sigcont_handler(int sig) {
+    FILE *f;
+    char fname[50];
+    sprintf(fname, "/tmp/context_%d", getpid());
+    f = fopen(fname, "r");
+    if (f) {
+        fscanf(f, "%d", &pc);
+        fclose(f);
+    }
+}
+
+void salvar_contexto() {
+    FILE *f;
+    char fname[50];
+    sprintf(fname, "/tmp/context_%d", getpid());
+    f = fopen(fname, "w");
+    fprintf(f, "%d\n", pc);
+    fclose(f);
+}
+
 
 void sys_call(int dispositivo) {
     int fd = open(FIFO_PATH, O_WRONLY | O_NONBLOCK);
@@ -37,9 +59,6 @@ void sys_call(int dispositivo) {
     int op = rand() % 3;
     msg.operacao = (op == 0) ? 'R' : (op == 1) ? 'W' : 'X';
 
-    if (dispositivo == 1) acessos_D1++;
-    else acessos_D2++;
-
     write(fd, &msg, sizeof(msg));
     close(fd);
 
@@ -53,7 +72,9 @@ int main() {
     srand(time(NULL) ^ getpid());
     printf("[App %d] iniciado.\n", getpid());
 
+    signal(SIGCONT, sigcont_handler);
     while (pc < MAX) {
+        salvar_contexto();
         sleep(1);
         if (rand() % 100 < 15) {
             int dispositivo = (rand() % 2) + 1;

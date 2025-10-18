@@ -51,8 +51,11 @@ void escalona_proximo() {
     do {
         current = (current + 1) % NPROC;
         tentativas++;
-        if (tentativas > NPROC) return;
+        if (tentativas > NPROC){ 
+            return;
+        }
     } while (proc[current].estado != 0);
+    printf("[KernelSim] Escalonando processo PID=%d (índice=%d)\n", proc[current].pid, current);
     kill(apps[current], SIGCONT);
     proc[current].estado = 2;
 }
@@ -64,14 +67,13 @@ void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
             proc[i].dispositivo = dispositivo;
             proc[i].operacao = operacao;
 
-            if (dispositivo == 1){
+            if (dispositivo == 1) {
                 proc[i].acessos_D1++;
                 fila_D1[fim_D1++ % NPROC] = pid;
-            } else if (dispositivo == 2){
+            } else if (dispositivo == 2) {
                 proc[i].acessos_D2++;
                 fila_D2[fim_D2++ % NPROC] = pid;
             }
-
             kill(pid, SIGSTOP);
             printf("[KernelSim] Processo %d bloqueado em D%d.\n", pid, dispositivo);
             break;
@@ -117,11 +119,12 @@ void mostra_status(int sig) {
         if (intercontroller_pid > 0) kill(intercontroller_pid, SIGSTOP);
 
         for (int i = 0; i < NPROC; i++) {
-            printf("PID %d | Estado=%d | PC=%d | D1=%d | D2=%d | Disp=%d | Op=%c\n",
-                proc[i].pid, proc[i].estado, proc[i].pc,
-                proc[i].acessos_D1, proc[i].acessos_D2,
-                proc[i].dispositivo, proc[i].operacao);
-            }
+            printf("PID %d | Estado %d | PC=%d | D1=%d | D2=%d | Disp=%d | Op=%c\n",
+            proc[i].pid, proc[i].estado, proc[i].pc,
+            proc[i].acessos_D1, proc[i].acessos_D2,
+            proc[i].dispositivo, proc[i].operacao);
+
+        }
         printf("Pressione Ctrl+C novamente para retomar.\n");
     } else {
         paused = 0;
