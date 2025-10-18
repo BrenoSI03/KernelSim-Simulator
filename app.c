@@ -5,19 +5,10 @@
 #include <time.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include "MsgSyscall.h"
 
 #define FIFO_PATH "/tmp/kernel_fifo"
 #define MAX 10
-
-typedef struct {
-    pid_t pid;
-    int tipo;         // 11 ou 12
-    int pc;
-    int acessos_D1;
-    int acessos_D2;
-    int dispositivo;
-    char operacao;
-} MsgSyscall;
 
 int pc = 0;
 int acessos_D1 = 0, acessos_D2 = 0;
