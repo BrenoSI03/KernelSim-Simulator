@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#define TIME_SLICE_US 500000  // 500 ms
 #define FIFO_PATH "/tmp/kernel_fifo"
 
 int main() {
@@ -20,18 +21,18 @@ int main() {
     printf("[InterControllerSim] Iniciado...\n");
 
     while (1) {
-        usleep(500000);
+        usleep(TIME_SLICE_US);
 
         int irq = 0;
         write(fd, &irq, sizeof(int));
         printf("[InterControllerSim] IRQ0 (TimeSlice)\n");
 
-        if ((rand() % 100) < 10) {   // IRQ1 com P_1 = 0.1
+        if ((rand() % 1000) < 100) {   // IRQ1 com P_1 = 1
             irq = 1;
             write(fd, &irq, sizeof(int));
             printf("[InterControllerSim] IRQ1 (D1 terminado)\n");
         }
-        if ((rand() % 100) < 5) {    // IRQ2 com P_2 = 0.05
+        if ((rand() % 1000) < 5) {    // IRQ2 com P_2 = 0.05 (20x menor)
             irq = 2;
             write(fd, &irq, sizeof(int));
             printf("[InterControllerSim] IRQ2 (D2 terminado)\n");
