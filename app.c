@@ -81,9 +81,11 @@ int main() {
             sys_call(dispositivo);
         }
         pc++;
+        salvar_contexto();
     }
 
     printf("[App %d] terminou. PC final=%d | D1=%d | D2=%d\n",
            getpid(), pc, acessos_D1, acessos_D2);
+    salvar_contexto();
     return 0;
 }

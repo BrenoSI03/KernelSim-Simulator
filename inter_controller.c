@@ -27,7 +27,7 @@ int main() {
         write(fd, &irq, sizeof(int));
         printf("[InterControllerSim] IRQ0 (TimeSlice)\n");
 
-        if ((rand() % 1000) < 100) {   // IRQ1 com P_1 = 1
+        if ((rand() % 1000) < 100) {   // IRQ1 com P_1 = 0.1
             irq = 1;
             write(fd, &irq, sizeof(int));
             printf("[InterControllerSim] IRQ1 (D1 terminado)\n");
