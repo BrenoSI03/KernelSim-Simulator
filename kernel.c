@@ -15,6 +15,16 @@
 #define RUNNING  2
 #define FINISHED 3
 
+static const char* state_name(int st) {
+    switch (st) {
+        case READY:    return "READY";
+        case BLOCKED:  return "BLOCKED";
+        case RUNNING:  return "RUNNING";
+        case FINISHED: return "FINISHED";
+        default:       return "UNKNOWN";
+    }
+}
+
 
 typedef struct {
     pid_t pid;
@@ -92,26 +102,41 @@ static void schedule_if_idle(void) {
 
 
 void escalona_proximo() {
-    int next = find_next_ready_index_from(current);
-    if (next == -1) {
-        // Ninguém pronto: não pare o atual se ele ainda está RUNNING
-        if (proc[current].estado != RUNNING) {
-            // Nada rodando: fica aguardando até alguém desbloquear
+    int atual = current;
+
+    // Se não há ninguém rodando, apenas tenta subir alguém READY
+    if (proc[atual].estado != RUNNING) {
+        int idx = find_next_ready_index_from(atual);
+        if (idx != -1) {
+            current = idx;
+            proc[current].estado = RUNNING;
+            kill(apps[current], SIGCONT);
         }
         return;
     }
 
-    // Existe um candidato READY. Se o atual está RUNNING, pare-o.
-    if (proc[current].estado == RUNNING) {
-        proc[current].estado = READY;
-        kill(apps[current], SIGSTOP);
+    // 1) Parar SEMPRE o atual (Round-Robin literal)
+    proc[atual].estado = READY;
+    kill(apps[atual], SIGSTOP);
+
+    // 2) Buscar o próximo READY depois do atual
+    int prox = find_next_ready_index_from(atual);
+
+    if (prox == -1) {
+        // 3) Não há outro READY: reative o mesmo imediatamente
+        current = atual;
+        proc[current].estado = RUNNING;
+        kill(apps[current], SIGCONT);
+        return;
     }
 
-    current = next;
+    // 4) Há outro READY: escale-o
+    current = prox;
     printf("[KernelSim] Escalonando PID=%d (idx=%d)\n", proc[current].pid, current);
     proc[current].estado = RUNNING;
     kill(apps[current], SIGCONT);
 }
+
 
 
 void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
@@ -192,10 +217,10 @@ void mostra_status(int sig) {
 
         // Status
         for (int i = 0; i < NPROC; i++) {
-            printf("PID %d | Estado %d | PC=%d | D1=%d | D2=%d | Disp=%d | Op=%c\n",
-                   proc[i].pid, proc[i].estado, proc[i].pc,
-                   proc[i].acessos_D1, proc[i].acessos_D2,
-                   proc[i].dispositivo, proc[i].operacao);
+            printf("PID %d | Estado %s | PC=%d | D1=%d | D2=%d | Disp=%d | Op=%c\n",
+                proc[i].pid, state_name(proc[i].estado), proc[i].pc,
+                proc[i].acessos_D1, proc[i].acessos_D2,
+                proc[i].dispositivo, proc[i].operacao);
         }
 
         printf("Pressione Ctrl+C novamente para retomar.\n");        
@@ -226,16 +251,25 @@ void mostra_status(int sig) {
 void verifica_terminos() {
     int status;
     pid_t pid;
+    int terminou_o_running = 0;
+
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         for (int i = 0; i < NPROC; i++) {
             if (proc[i].pid == pid) {
-                proc[i].estado = 3;
+                int era_running = (proc[i].estado == RUNNING);
+                proc[i].estado = FINISHED;
                 printf("[KernelSim] Processo %d terminou.\n", pid);
+                if (era_running) terminou_o_running = 1;
                 break;
             }
         }
     }
+
+    if (terminou_o_running && !paused) {
+        schedule_if_idle();
+    }
 }
+
 
 int main() {
     mkfifo(FIFO_PATH, 0666);

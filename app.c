@@ -48,6 +48,9 @@ void sys_call(int dispositivo) {
     int fd = open(FIFO_PATH, O_WRONLY | O_NONBLOCK);
     if (fd < 0) return;
 
+    if (dispositivo == 1) acessos_D1++;
+    else acessos_D2++;
+
     MsgSyscall msg;
     msg.pid = getpid();
     msg.tipo = 10 + dispositivo; // 11 ou 12
