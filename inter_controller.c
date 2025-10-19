@@ -7,13 +7,10 @@
 #include <fcntl.h>
 #include <signal.h>
 
+#define TIME_SLICE_US 500000  // 500 ms
 #define FIFO_PATH "/tmp/kernel_fifo"
 
-int running = 1;
-void stop(int sig){ running = 0; }
-
 int main() {
-    signal(SIGUSR1, stop);
     srand(time(NULL));
 
     int fd = open(FIFO_PATH, O_WRONLY);
@@ -24,8 +21,8 @@ int main() {
 
     printf("[InterControllerSim] Iniciado...\n");
 
-    while (running) {
-        usleep(500000);
+    while (1) {
+        usleep(TIME_SLICE_US);
 
         int irq = 0;
         write(fd, &irq, sizeof(int));
