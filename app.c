@@ -8,7 +8,7 @@
 #include "MsgSyscall.h"
 
 #define FIFO_SYSCALL "/tmp/fifo_syscall"
-#define MAX 50
+#define MAX 20
 
 int pc = 0;
 int acessos_D1 = 0, acessos_D2 = 0;
@@ -79,9 +79,6 @@ int main() {
         if (rand() % 100 < 15) {
             int dispositivo = (rand() % 2) + 1; // 1 ou 2
             sys_call(dispositivo);
-        }
-        else{
-            printf("\nFora\n");
         }
 
         usleep(500000);  // 0.5 s
