@@ -8,12 +8,12 @@
 #include <signal.h>
 
 #define TIME_SLICE_US 500000  // 500 ms
-#define FIFO_PATH "/tmp/kernel_fifo"
+#define FIFO_IRQ "/tmp/fifo_irq"
 
 int main() {
     srand(time(NULL));
 
-    int fd = open(FIFO_PATH, O_WRONLY);
+    int fd = open(FIFO_IRQ, O_WRONLY);
     if (fd < 0) {
         perror("[InterControllerSim] Erro ao abrir FIFO");
         exit(1);

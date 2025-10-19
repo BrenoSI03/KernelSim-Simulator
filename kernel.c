@@ -12,7 +12,8 @@
 #include "Procinfo.h"
 
 #define NPROC 5
-#define FIFO_PATH "/tmp/kernel_fifo"
+#define FIFO_SYSCALL "/tmp/fifo_syscall"
+#define FIFO_IRQ     "/tmp/fifo_irq"
 
 ProcInfo proc[NPROC];
 pid_t fila_D1[NPROC], fila_D2[NPROC];
@@ -20,14 +21,15 @@ int inicio_D1 = 0, fim_D1 = 0;
 int inicio_D2 = 0, fim_D2 = 0;
 
 pid_t apps[NPROC];
-int current = 0;
-int fd_fifo = -1;
-int paused = 0;          // Observar sem o volatile sig_atomic_t
+int atual_idx = 0;
+int fd_sys = -1, fd_irq = -1;
+int pausado = 0;          // Observar sem o volatile sig_atomic_t
 int tratando_sigint = 0; // Observar sem o volatile sig_atomic_t
 
 pid_t intercontroller_pid = -1;
 int ultimo_running_idx = -1;
 
+/* Salva o PC do processo em arquivo simples */
 static void salvar_contexto_pid(pid_t pid, int pc)
 {
     char fname[64];
@@ -39,6 +41,7 @@ static void salvar_contexto_pid(pid_t pid, int pc)
     }
 }
 
+/* Encontra índice do que está RUNNING (ou -1) */
 static int encontrar_running_idx(void) {
     for (int i = 0; i < NPROC; i++) {
         if (proc[i].estado == RUNNING) {
@@ -48,6 +51,7 @@ static int encontrar_running_idx(void) {
     return -1;
 }
 
+/* Acha próximo READY em Round-Robin depois de start_idx (ou -1) */
 static int proximo_ready(int start_idx) {
     for (int k = 1; k <= NPROC; k++) {
         int j = (start_idx + k) % NPROC;
@@ -65,54 +69,54 @@ static int existe_ready(void) {
     return 0;
 }
 
-/* Sobe alguém se ninguém estiver rodando */
+/* Sobe alguém READY caso ninguém esteja RUNNING */
 static void escalona_caso_nao_running(void) {
     if (encontrar_running_idx() != -1) return;  // já tem alguém RUNNING
-    int idx = proximo_ready(current);
+    int idx = proximo_ready(atual_idx);
     if (idx == -1) return;
-    current = idx;
-    printf("[KernelSim] Escalonando (idle) PID=%d (idx=%d)\n", proc[current].pid, current);
-    proc[current].estado = RUNNING;
-    kill(apps[current], SIGCONT);
+    atual_idx = idx;
+    printf("[KernelSim] Escalonando (idle) PID=%d (idx=%d)\n", proc[atual_idx].pid, atual_idx);
+    proc[atual_idx].estado = RUNNING;
+    kill(apps[atual_idx], SIGCONT);
 }
 
-
+/* Aplica RR “literal”: sempre para o atual e tenta subir o próximo */
 void escalona_proximo() 
 {
-    int atual = current;
+    int idx = atual_idx;
 
     // Se não há ninguém rodando, apenas tenta subir alguém READY
-    if (proc[atual].estado != RUNNING) {
-        int idx = proximo_ready(atual);
-        if (idx != -1) {
-            current = idx;
-            proc[current].estado = RUNNING;
-            kill(apps[current], SIGCONT);
+    if (proc[idx].estado != RUNNING) {
+        int prox = proximo_ready(idx);
+        if (prox != -1) {
+            atual_idx = prox;
+            proc[atual_idx].estado = RUNNING;
+            kill(apps[atual_idx], SIGCONT);
         }
         return;
     }
 
     // 1) Parar SEMPRE o atual (Round-Robin literal)
-    proc[atual].estado = READY;
-    salvar_contexto_pid(proc[atual].pid, proc[atual].pc);
-    kill(apps[atual], SIGSTOP);
+    proc[idx].estado = READY;
+    salvar_contexto_pid(proc[idx].pid, proc[idx].pc);
+    kill(apps[idx], SIGSTOP);
 
     // 2) Buscar o próximo READY depois do atual
-    int prox = proximo_ready(atual);
+    int prox = proximo_ready(idx);
 
     if (prox == -1) {
         // 3) Não há outro READY: reative o mesmo imediatamente
-        current = atual;
-        proc[current].estado = RUNNING;
-        kill(apps[current], SIGCONT);
+        atual_idx = idx;
+        proc[atual_idx].estado = RUNNING;
+        kill(apps[atual_idx], SIGCONT);
         return;
     }
 
     // 4) Há outro READY: escale-o
-    current = prox;
-    printf("[KernelSim] Escalonando PID=%d (idx=%d)\n", proc[current].pid, current);
-    proc[current].estado = RUNNING;
-    kill(apps[current], SIGCONT);
+    atual_idx = prox;
+    printf("[KernelSim] Escalonando PID=%d (idx=%d)\n", proc[atual_idx].pid, atual_idx);
+    proc[atual_idx].estado = RUNNING;
+    kill(apps[atual_idx], SIGCONT);
 }
 
 void bloqueia_processo(pid_t pid, int dispositivo, char operacao) 
@@ -143,6 +147,7 @@ void bloqueia_processo(pid_t pid, int dispositivo, char operacao)
 }
 
 
+/* Desbloqueia o primeiro da fila do dispositivo */
 void desbloqueia_processo(int dispositivo) 
 {
     pid_t pid;
@@ -151,7 +156,8 @@ void desbloqueia_processo(int dispositivo)
         pid = fila_D1[inicio_D1++ % NPROC];
     else if (dispositivo == 2 && inicio_D2 < fim_D2)
         pid = fila_D2[inicio_D2++ % NPROC];
-    else return;
+    else 
+        return;
 
     for (int i = 0; i < NPROC; i++) 
     {
@@ -169,16 +175,16 @@ void desbloqueia_processo(int dispositivo)
     }
 }
 
-
+/* Exibe/retoma status com Ctrl+C (pausa/continua) */
 void mostra_status(int sig) 
 {
     if (tratando_sigint) return; // evita reentrância
     tratando_sigint = 1;
 
 
-    if (!paused) 
+    if (!pausado) 
     {
-        paused = 1;
+        pausado = 1;
         ultimo_running_idx = encontrar_running_idx();
 
         printf("\n=== PAUSANDO SIMULAÇÃO ===\n");
@@ -194,8 +200,6 @@ void mostra_status(int sig)
         if (intercontroller_pid > 0) 
             kill(intercontroller_pid, SIGSTOP);
 
-        
-        // close(fd_fifo); // Pare o FIFO
 
         // Status
         printf("%-8s %-10s %-6s %-6s %-6s %-10s %-10s\n",
@@ -213,13 +217,13 @@ void mostra_status(int sig)
     } 
     else 
     {
-        paused = 0;
+        pausado = 0;
         printf("\n=== RETOMANDO SIMULAÇÃO ===\n");
 
         // Retome SOMENTE quem estava RUNNING
         if (ultimo_running_idx >= 0 && proc[ultimo_running_idx].estado != FINISHED) {
             // Fixar o RR no mesmo índice que rodava
-            current = ultimo_running_idx;
+            atual_idx = ultimo_running_idx;
             kill(proc[ultimo_running_idx].pid, SIGCONT);
         } else {
             // Se não tinha RUNNING (ex.: todos bloqueados), ligue alguém READY
@@ -235,8 +239,8 @@ void mostra_status(int sig)
     tratando_sigint = 0;
 }
 
-
-void verifica_terminos() 
+/* Trata terminações dos apps e sobe outro se necessário */
+void verifica_terminos(void) 
 {
     int status;
     pid_t pid;
@@ -259,17 +263,21 @@ void verifica_terminos()
         }
     }
 
-    if (terminou_running && !paused) 
+    if (terminou_running && !pausado) 
     {
         escalona_caso_nao_running();
     }
 }
 
-int main() 
+int main(void) 
 {
-    mkfifo(FIFO_PATH, 0666);
+    /* Cria os dois FIFOs (syscall e irq) */
+    mkfifo(FIFO_SYSCALL, 0666);
+    mkfifo(FIFO_IRQ, 0666);
+
     signal(SIGINT, mostra_status);
     
+    /* Cria os 5 apps e inicia parados */
     for (int i = 0; i < NPROC; i++) 
     {
         pid_t pid = fork();
@@ -295,19 +303,23 @@ int main()
     }
 
     sleep(1);
-    proc[current].estado = RUNNING;
-    kill(apps[current], SIGCONT);
+    proc[atual_idx].estado = RUNNING;
+    kill(apps[atual_idx], SIGCONT);
     
 
-    fd_fifo = open(FIFO_PATH, O_RDONLY);
-    if (fd_fifo < 0) {
-        perror("open FIFO");
-        return 1;
+    /* Abre os dois FIFOs em não-bloqueante para drenar */
+    fd_sys = open(FIFO_SYSCALL, O_RDONLY | O_NONBLOCK);
+    if (fd_sys < 0) { 
+        perror("open FIFO_SYSCALL");
+        return 1; 
     }
-    
-    int irq;
-    MsgSyscall msg;
-    
+    fd_irq = open(FIFO_IRQ, O_RDONLY | O_NONBLOCK);
+    if (fd_irq < 0) { 
+        perror("open FIFO_IRQ");
+        return 1; 
+    }
+
+    /* Sobe o InterController depois dos FIFOs estarem abertos */  
     intercontroller_pid = fork();
     if (intercontroller_pid == 0) 
     {
@@ -317,20 +329,20 @@ int main()
     }
 
 
-    int hasProcessAlive = 1;
-    while (hasProcessAlive) 
+    while (1) 
     {
-        if (paused) 
+        if (pausado) 
         {
             usleep(200000); // espera 200ms enquanto pausado
             continue;
         }
         
         verifica_terminos();
-        ssize_t bytes = read(fd_fifo, &msg, sizeof(MsgSyscall));
-        
-        if (bytes == sizeof(MsgSyscall)) 
-        {
+
+        /* 1) Drenar todas as syscalls pendentes */
+        MsgSyscall msg;
+
+        while (read(fd_sys, &msg, sizeof(MsgSyscall)) == sizeof(MsgSyscall)) {
             for (int i = 0; i < NPROC; i++) 
             {
                 if (proc[i].pid == msg.pid) 
@@ -339,57 +351,50 @@ int main()
                     break;
                 }
             }
+
             if (msg.tipo == 11) 
             {
-                printf("[KernelSim] Processo %d bloqueado em D1.\n", msg.pid);
                 bloqueia_processo(msg.pid, 1, msg.operacao);
                 escalona_proximo();
             } 
             else if (msg.tipo == 12) 
             {
-                printf("[KernelSim] Processo %d bloqueado em D2.\n", msg.pid);
                 bloqueia_processo(msg.pid, 2, msg.operacao);
                 escalona_proximo();
             }
         }
-        else if (bytes == sizeof(int)) 
-        {
-            int irq = *((int *)&msg);
-            
-            if (!paused) 
-            {
-                switch (irq) 
-                {
+
+        /* 2) Drenar todos os IRQs pendentes */
+        int irq;
+        while (read(fd_irq, &irq, sizeof(int)) == sizeof(int)) {
+            if (!pausado) {
+                switch (irq) {
                     case 0:
                         printf("[KernelSim] IRQ0 recebido: Troca de processo.\n");
                         escalona_proximo();
-                        break;
                     case 1:
                         printf("[KernelSim] IRQ1 recebido: operação em D1 terminou.\n");
                         desbloqueia_processo(1);
-                        break;
                     case 2:
                         printf("[KernelSim] IRQ2 recebido: operação em D2 terminou.\n");
                         desbloqueia_processo(2);
-                        break;
                 }
             }
 
         }
 
-        hasProcessAlive = 0;
-        for(int i = 0; i < NPROC; i++)
-        {
-            if (proc[i].estado != FINISHED){
-                hasProcessAlive = 1;
-                break;
-            }
-        }
+        usleep(10000); // espera 10ms antes do próximo ciclo
     }
 
-    kill(intercontroller_pid, SIGUSR1);
-    close(fd_fifo);
-    unlink(FIFO_PATH);
+    /* Finalização */
+    if (intercontroller_pid > 0) {
+        kill(intercontroller_pid, SIGTERM);
+    }
+
+    close(fd_sys);
+    close(fd_irq);
+    unlink(FIFO_SYSCALL);
+    unlink(FIFO_IRQ);
     system("rm -f /tmp/context_*");
     return 0;
 }
