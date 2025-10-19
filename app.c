@@ -8,7 +8,7 @@
 #include "MsgSyscall.h"
 
 #define FIFO_PATH "/tmp/kernel_fifo"
-#define MAX 10
+#define MAX 3
 
 int pc = 0;
 int acessos_D1 = 0, acessos_D2 = 0;
@@ -39,6 +39,7 @@ void sys_call(int dispositivo) {
 }
 
 int main() {
+    signal(SIGINT, SIG_IGN);
     srand(time(NULL) ^ getpid());
     printf("[App %d] iniciado.\n", getpid());
 

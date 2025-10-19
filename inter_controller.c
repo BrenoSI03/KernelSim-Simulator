@@ -5,10 +5,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #define FIFO_PATH "/tmp/kernel_fifo"
 
+int running = 1;
+void stop(int sig){ running = 0; }
+
 int main() {
+    signal(SIGUSR1, stop);
     srand(time(NULL));
 
     int fd = open(FIFO_PATH, O_WRONLY);
@@ -19,7 +24,7 @@ int main() {
 
     printf("[InterControllerSim] Iniciado...\n");
 
-    while (1) {
+    while (running) {
         usleep(500000);
 
         int irq = 0;

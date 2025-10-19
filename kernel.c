@@ -201,17 +201,18 @@ int main()
         exit(1);
     }
 
-    while (1) 
+    int hasProcessAlive = 1;
+    while (hasProcessAlive) 
     {
         if (paused) 
         {
             usleep(200000); // espera 200ms enquanto pausado
             continue;
         }
-
+        
         verifica_terminos();
         ssize_t bytes = read(fd_fifo, &msg, sizeof(MsgSyscall));
-
+        
         if (bytes == sizeof(MsgSyscall)) 
         {
             for (int i = 0; i < NPROC; i++) 
@@ -236,28 +237,38 @@ int main()
         else if (bytes == sizeof(int)) 
         {
             int irq = *((int *)&msg);
-
+            
             if (!paused) 
             {
                 switch (irq) 
                 {
                     case 0:
-                        printf("[KernelSim] IRQ0 recebido: Troca de processo.\n");
-                        escalona_proximo();
-                        break;
+                    printf("[KernelSim] IRQ0 recebido: Troca de processo.\n");
+                    escalona_proximo();
+                    break;
                     case 1:
-                        printf("[KernelSim] IRQ1 recebido: operação em D1 terminou.\n");
-                        desbloqueia_processo(1);
-                        break;
+                    printf("[KernelSim] IRQ1 recebido: operação em D1 terminou.\n");
+                    desbloqueia_processo(1);
+                    break;
                     case 2:
                     printf("[KernelSim] IRQ2 recebido: operação em D2 terminou.\n");
                     desbloqueia_processo(2);
                     break;
                 }
             }
+
+        }
+        hasProcessAlive = 0;
+        for(int i = 0; i < NPROC; i++)
+        {
+            if (proc[i].estado != FINISHED){
+                hasProcessAlive = 1;
+                break;
+            }
         }
     }
     
+    kill(intercontroller_pid, SIGUSR1);
     close(fd_fifo);
     unlink(FIFO_PATH);
     return 0;
