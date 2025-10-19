@@ -71,6 +71,18 @@ static int ler_pc_do_contexto(pid_t pid, int *out_pc) {
     return 0;
 }
 
+static void salvar_contexto_pid(pid_t pid, int pc)
+{
+    char fname[64];
+    snprintf(fname, sizeof(fname), "/tmp/context_%d", pid);
+    FILE *f = fopen(fname, "w");
+    if (f) {
+        fprintf(f, "%d\n", pc);
+        fclose(f);
+    }
+}
+
+
 static int find_running_index(void) {
     for (int i = 0; i < NPROC; i++) if (proc[i].estado == RUNNING) return i;
     return -1;
@@ -117,6 +129,7 @@ void escalona_proximo() {
 
     // 1) Parar SEMPRE o atual (Round-Robin literal)
     proc[atual].estado = READY;
+    salvar_contexto_pid(proc[atual].pid, proc[atual].pc);
     kill(apps[atual], SIGSTOP);
 
     // 2) Buscar o próximo READY depois do atual
@@ -154,7 +167,8 @@ void bloqueia_processo(pid_t pid, int dispositivo, char operacao) {
                 proc[i].acessos_D2++;
                 fila_D2[fim_D2++ % NPROC] = pid;
             }
-
+            
+            salvar_contexto_pid(pid, proc[i].pc);
             kill(pid, SIGSTOP);
             break;
         }
@@ -216,8 +230,11 @@ void mostra_status(int sig) {
         }
 
         // Status
+        printf("%-8s %-10s %-6s %-6s %-6s %-10s %-10s\n",
+       "PID", "ESTADO", "PC", "D1", "D2", "DISP", "OPERACAO");
+printf("----------------------------------------------------------\n");
         for (int i = 0; i < NPROC; i++) {
-            printf("PID %d | Estado %s | PC=%d | D1=%d | D2=%d | Disp=%d | Op=%c\n",
+            printf("%-8d %-10s %-6d %-6d %-6d %-10d %-10c\n",
                 proc[i].pid, state_name(proc[i].estado), proc[i].pc,
                 proc[i].acessos_D1, proc[i].acessos_D2,
                 proc[i].dispositivo, proc[i].operacao);
@@ -244,8 +261,6 @@ void mostra_status(int sig) {
 
     handling_sigint = 0;
 }
-
-
 
 
 void verifica_terminos() {
@@ -354,5 +369,6 @@ int main() {
     }
     close(fd_fifo);
     unlink(FIFO_PATH);
+    system("rm -f /tmp/context_*");
     return 0;
 }
